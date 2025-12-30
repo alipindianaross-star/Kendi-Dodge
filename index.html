@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LilPop Dodge</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- Pixelify Sans font -->
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --player:#9e004f;
+  --accent:#ff0080;
+}
+
+*{
+  box-sizing:border-box;
+  font-family:'Pixelify Sans', sans-serif;
+  font-size:22px;
+}
+
+html,body{
+  margin:0;
+  height:100%;
+  overflow:hidden;
+}
+
+/* Game background */
+#game{
+  width:100vw;
+  height:100vh;
+  position:relative;
+  background-image: url("https://img.freepik.com/free-photo/blurred-pop-abstract-background-pink_58702-1699.jpg?semt=ais_hybrid&w=740&q=80");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index:0;
+}
+
+#player{
+  position:absolute;
+  width:60px;
+  height:15px;
+  bottom:10px;
+  border-radius:50px;
+  background:var(--player);
+  box-shadow:0 0 12px #fff;
+  z-index:1;
+}
+
+/* Lollipop Hazard */
+.hazard{
+  position:absolute;
+  width:50px;
+  height:50px;
+  border-radius:50%;
+  background:repeating-conic-gradient(pink 0deg 30deg, white 30deg 60deg);
+  box-shadow:0 0 16px #fff;
+  z-index:1;
+}
+
+.hazard::after{
+  content:"";
+  position:absolute;
+  bottom:-10px;
+  width:6px;
+  height:20px;
+  background:#d4a373;
+  border-radius:3px;
+}
+
+/* Shake */
+@keyframes shake{
+  0%{transform:translate(0)}
+  25%{transform:translate(-8px)}
+  50%{transform:translate(8px)}
+  75%{transform:translate(-5px)}
+  100%{transform:translate(0)}
+}
+.shake{animation:shake 400ms}
+
+/* Overlay */
+.overlay{
+  position:fixed;
+  inset:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:20px;
+  text-align:center;
+  z-index:2;
+}
+
+#start{
+  background-image: url("https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRVjjMdlx7dcbDNfA9hAUoeJoAcejv4lopymg&s");
+  background-size: cover;
+  background-position: center;
+}
+
+#start::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:rgba(0,0,0,0.5);
+}
+
+#start > *{
+  position:relative;
+  z-index:1;
+}
+
+.title{
+  font-size:40px;
+  color:var(--accent);
+}
+
+.overlay p{
+  font-size:22px;
+  color:#fff;
+  margin:0;
+}
+
+.btn{
+  font-size:24px;
+  padding:10px 22px;
+  border:none;
+  border-radius:8px;
+  background:linear-gradient(135deg,#ff008c,#ff83bb);
+  color:#fff;
+  cursor:pointer;
+}
+
+/* HUD */
+.hud{
+  position:fixed;
+  top:16px;
+  left:16px;
+  display:none;
+  flex-direction:column;
+  gap:8px;
+  color:#fff;
+  z-index:3;
+}
+
+.tip,
+.stop,
+.pausedTip{
+  font-size:20px;
+}
+
+.pausedTip{
+  margin-top:6px;
+}
+
+.lives{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+
+.lifeIcon{
+  width:24px;
+  height:24px;
+  image-rendering:pixelated;
+}
+
+.hidden{display:none}
+</style>
+</head>
+<body>
+
+<div class="hud" id="hud">
+  <div id="score">Score: 0</div>
+  <div id="high">High: 0</div>
+  <div class="lives" id="lives"></div>
+  <div class="tip">Move: A / D or ← →</div>
+  <div class="stop">Paused: P</div>
+  <div class="pausedTip hidden" id="pausedTip">Paused</div>
+</div>
+
+<div id="game">
+  <div id="player"></div>
+</div>
+
+<div class="overlay" id="start">
+  <div class="title">Kendi Dodge</div>
+  <p>Avoid catching the Kendi, survive as long as you can</p>
+  <button class="btn" id="play">PLAY</button>
+</div>
+
+<div class="overlay hidden" id="over">
+  <div class="title">Game Over</div>
+  <p id="finalScore"></p>
+  <p id="bestScore"></p>
+  <button class="btn" id="restart">PLAY AGAIN</button>
+</div>
+
+<script>
+const game=document.getElementById("game");
+const player=document.getElementById("player");
+const hud=document.getElementById("hud");
+const scoreEl=document.getElementById("score");
+const livesEl=document.getElementById("lives");
+const highEl=document.getElementById("high");
+const startScreen=document.getElementById("start");
+const overScreen=document.getElementById("over");
+const pausedTip=document.getElementById("pausedTip");
+
+let running=false, paused=false;
+let score=0, lives=3, high=0;
+let hazards=[];
+let spawnTimer=0;
+let spawnInterval=900;
+let speedBase=2.8;
+let lastTime=0;
+
+const input={left:false,right:false};
+const playerSpeed=6;
+const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+const rect=el=>el.getBoundingClientRect();
+const rnd=(a,b)=>Math.random()*(b-a)+a;
+
+function updateLives(){
+  livesEl.innerHTML="";
+  for(let i=0;i<lives;i++){
+    const img=document.createElement("img");
+    img.src="https://t3.ftcdn.net/jpg/06/17/39/98/360_F_617399817_gaEEOpsv2rPFpBjLYWYXeklmpb5cwDG9.jpg";
+    img.className="lifeIcon";
+    livesEl.appendChild(img);
+  }
+}
+
+function resetGame(){
+  hazards.forEach(h=>h.el.remove());
+  hazards=[];
+  score=0;
+  lives=3;
+  spawnInterval=900;
+  speedBase=2.8;
+  hud.style.display="flex";
+  pausedTip.classList.add("hidden");
+  updateLives();
+  centerPlayer();
+  running=true;
+  paused=false;
+  lastTime=performance.now();
+  requestAnimationFrame(loop);
+}
+
+function centerPlayer(){
+  player.style.left=(window.innerWidth/2-player.offsetWidth/2)+"px";
+}
+
+function spawnHazard(){
+  const el=document.createElement("div");
+  el.className="hazard";
+  const size=rnd(40,80);
+  el.style.width=el.style.height=size+"px";
+  el.style.left=rnd(0,window.innerWidth-size)+"px";
+  el.style.top=-(size+10)+"px";
+  game.appendChild(el);
+  hazards.push({el,vy:rnd(speedBase,speedBase+2)});
+}
+
+function takeHit(){
+  lives--;
+  updateLives();
+  document.body.classList.add("shake");
+  setTimeout(()=>document.body.classList.remove("shake"),400);
+  if(lives<=0) endGame();
+}
+
+function addScore(){
+  score++;
+  if(score>high) high=score;
+  scoreEl.textContent="Score: "+score;
+  highEl.textContent="High: "+high;
+}
+
+function loop(now){
+  if(!running) return;
+  lastTime=now;
+
+  if(!paused){
+    let px=player.offsetLeft;
+    if(input.left) px-=playerSpeed;
+    if(input.right) px+=playerSpeed;
+    player.style.left=clamp(px,0,window.innerWidth-player.offsetWidth)+"px";
+
+    spawnTimer+=16;
+    if(spawnTimer>=spawnInterval){
+      spawnTimer=0;
+      spawnHazard();
+    }
+
+    const pr=rect(player);
+    for(let i=hazards.length-1;i>=0;i--){
+      const h=hazards[i];
+      h.el.style.top=h.el.offsetTop+h.vy+"px";
+      const hr=rect(h.el);
+
+      if(hr.top>window.innerHeight){
+        h.el.remove();
+        hazards.splice(i,1);
+        addScore();
+      }else if(hr.left<pr.right && hr.right>pr.left && hr.top<pr.bottom && hr.bottom>pr.top){
+        h.el.remove();
+        hazards.splice(i,1);
+        takeHit();
+      }
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+function endGame(){
+  running=false;
+  hud.style.display="none";
+  document.getElementById("finalScore").textContent="Score: "+score;
+  document.getElementById("bestScore").textContent="High: "+high;
+  overScreen.classList.remove("hidden");
+}
+
+window.addEventListener("keydown",e=>{
+  if(e.key==="ArrowLeft"||e.key==="a") input.left=true;
+  if(e.key==="ArrowRight"||e.key==="d") input.right=true;
+  if(e.key.toLowerCase()==="p"){
+    paused=!paused;
+    pausedTip.classList.toggle("hidden",!paused);
+  }
+});
+
+window.addEventListener("keyup",e=>{
+  if(e.key==="ArrowLeft"||e.key==="a") input.left=false;
+  if(e.key==="ArrowRight"||e.key==="d") input.right=false;
+});
+
+document.getElementById("play").onclick=()=>{
+  startScreen.classList.add("hidden");
+  resetGame();
+};
+
+document.getElementById("restart").onclick=()=>{
+  overScreen.classList.add("hidden");
+  resetGame();
+};
+
+window.addEventListener("resize",centerPlayer);
+</script>
+</body>
+</html>
